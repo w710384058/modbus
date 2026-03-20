@@ -155,11 +155,12 @@ namespace SupervisorModbusWinForms
             }
         }
 
-        private void ServerLoop()
+        private void ServerLoop()//整個 Modbus TCP 模擬伺服器中最核心的
+                                 //「接受客戶端連線並處理請求」的無限迴圈邏輯
         {
             try
             {
-                _listener = new TcpListener(IPAddress.Any, Port);
+                _listener = new TcpListener(IPAddress.Any, Port);//建立並啟動監聽器
                 _listener.Start();
 
                 while (_serverRunning)
@@ -167,38 +168,44 @@ namespace SupervisorModbusWinForms
                     try
                     {
                         Log("Waiting for client...");
-                        using TcpClient client = _listener.AcceptTcpClient();
+                        using TcpClient client = _listener.AcceptTcpClient();//★ 這裡是阻塞點 ★
+                                                                             // 會卡住直到有客戶端連進來，
+                                                                             // 或是 Stop() 被呼叫導致例外
                         Log("Client connected.");
 
-                        try
+                        try//處理這個客戶端的 Modbus 通訊
+                           //注意：這裡是同步呼叫 HandleClient()，會阻塞直到該客戶端斷線
                         {
                             HandleClient(client);
                         }
-                        catch (Exception ex)
+                        catch (Exception ex)//HandleClient() 內讀寫資料時發生錯誤（斷線、格式錯等）
                         {
                             Log($"Client error: {ex.Message}");
                         }
 
                         Log("Client disconnected.");
                     }
-                    catch (SocketException)
+                    catch (SocketException)//如果 _serverRunning 還是 true，代表不是正常停止，而是真的錯誤
                     {
                         if (_serverRunning)
                             Log("Socket error in ServerLoop.");
                     }
-                    catch (Exception ex)
+                    catch (Exception ex)// 其他一般例外
                     {
                         Log($"ServerLoop error: {ex.Message}");
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex)//最外層 catch：如果連 TcpListener 都啟動失敗（例如埠被占用）
             {
                 Log($"Server start failed: {ex.Message}");
                 StatusChanged?.Invoke("Server Error");
             }
         }
-        private string DecodeModbus(byte[] data, int len, string direction)
+        
+        private string DecodeModbus(byte[] data, int len, string direction)//Modbus TCP 解析器。它接收位元組陣列（Byte Array），
+                                                                           //根據 功能碼 (Function Code) 解析其內容，
+                                                                           //並輸出易於閱讀的除錯資訊。
         {
             if (len < 8) return "";
 
@@ -308,7 +315,9 @@ namespace SupervisorModbusWinForms
             }
         }
 
-        private void HandleClient(TcpClient client)
+        private void HandleClient(TcpClient client)//Modbus TCP 伺服器 (Slave) 的通訊核心處理邏輯。
+                                                   //它負責處理單一用戶端的連線，循環讀取請求、解析指令
+                                                   //、執行對應邏輯並回傳結果。
         {
             using NetworkStream stream = client.GetStream();
             byte[] request = new byte[260];
