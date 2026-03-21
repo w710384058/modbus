@@ -8,7 +8,7 @@ namespace SupervisorModbusWinForms
 {
     public class SupervisorModbusServer
     {
-        
+
         public event Action<string>? LogGenerated;//產生日誌時觸發，例如「收到連線從 192.168.1.100」
                                                   //「寫入 40004 = 1」「發生錯誤：連接超時」
         public event Action<string>? StatusChanged;//伺服器整體狀態改變時觸發，例如「已啟動」「正在監聽埠 1502」
@@ -202,7 +202,7 @@ namespace SupervisorModbusWinForms
                 StatusChanged?.Invoke("Server Error");
             }
         }
-        
+
         private string DecodeModbus(byte[] data, int len, string direction)//Modbus TCP 解析器。它接收位元組陣列（Byte Array），
                                                                            //根據 功能碼 (Function Code) 解析其內容，
                                                                            //並輸出易於閱讀的除錯資訊。
@@ -219,7 +219,9 @@ namespace SupervisorModbusWinForms
                 case 0x06: // Write Single Register
                     if (len >= 12)
                     {
-                        ushort addr = (ushort)((data[8] << 8) | data[9]);
+                        ushort addr = (ushort)((data[8] << 8) | data[9]);//|（位元或 OR）：用來合併兩個數值。
+                                                                         //(Big-Endian)
+                                                                         //<<:左移位運算符，將高位移到前面，低位移到後面。 
                         ushort value = (ushort)((data[10] << 8) | data[11]);
 
                         sb.AppendLine("→ FC06 Write Single Register");
@@ -319,16 +321,16 @@ namespace SupervisorModbusWinForms
                                                    //它負責處理單一用戶端的連線，循環讀取請求、解析指令
                                                    //、執行對應邏輯並回傳結果。
         {
-            using NetworkStream stream = client.GetStream();
-            byte[] request = new byte[260];
+            using NetworkStream stream = client.GetStream();//使用了 using 關鍵字，確保處理完後會自動掛斷（釋放資源）。
+            byte[] request = new byte[260];//Modbus RTU/TCP 協定規範的最長封包大約就是 250 多個 Byte
 
             while (_serverRunning)
             {
                 int len;
                 try
                 {
-                    len = stream.Read(request, 0, request.Length);
-                    
+                    len = stream.Read(request, 0, request.Length);//阻塞式 (Blocking) 操作，沒人傳資料時，程式會停在這裡等
+
                 }
                 catch
                 {
@@ -349,7 +351,7 @@ namespace SupervisorModbusWinForms
                     0x03 => HandleReadHoldingRegisters(request, len, unitId),
                     0x06 => HandleWriteSingleRegister(request, len, unitId),
                     0x10 => HandleWriteMultipleRegisters(request, len, unitId),
-                    _ => BuildExceptionResponse(request, unitId, functionCode, 0x01)
+                    _ => BuildExceptionResponse(request, unitId, functionCode, 0x01)//錯誤代碼 (0x01)， _ 是其餘的意思
                 };
 
                 Log(DecodeModbus(response, response.Length, "TX"));
@@ -373,7 +375,10 @@ namespace SupervisorModbusWinForms
                 return BuildExceptionResponse(req, unitId, 0x03, 0x02);
 
             int byteCount = quantity * 2;
-            ushort lengthField = (ushort)(3 + byteCount);
+            ushort lengthField = (ushort)(3 + byteCount);//在 Modbus TCP 中，MBAP Header 的第 5 與第 6 個 Byte
+                                                         //（即 resp[4] 和 resp[5]）定義為 「長度欄位 (Length Field)」
+                                                         //從 Unit ID 開始計算，直到封包結束的所有 Byte 總數
+                                                         //1 (Unit ID)+ 1 (FC)+ 1  (Byte Count) + n{(byteCount (Data)} = 3 + (byteCount)
 
             byte[] resp = new byte[9 + byteCount];
             resp[0] = req[0];
@@ -381,7 +386,7 @@ namespace SupervisorModbusWinForms
             resp[2] = 0x00;
             resp[3] = 0x00;
             resp[4] = (byte)(lengthField >> 8);
-            resp[5] = (byte)(lengthField & 0xFF);
+            resp[5] = (byte)(lengthField & 0xFF);//11111111
             resp[6] = unitId;
             resp[7] = 0x03;
             resp[8] = (byte)byteCount;
